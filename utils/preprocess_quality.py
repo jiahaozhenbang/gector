@@ -324,47 +324,28 @@ def add_labels_to_the_tokens(source_tokens, labels, delimeters=SEQ_DELIMETERS):
         tokens_with_all_tags.append(comb_record)
     return delimeters['tokens'].join(tokens_with_all_tags)
 
+def read_lines(fn, skip_strip=False):
+    if not os.path.exists(fn):
+        return []
+    with open(fn, 'r', encoding='utf-8') as f:
+        lines = f.readlines()
+    return [s.strip() for s in lines if s.strip() or skip_strip]
 
-def convert_data_from_raw_files(source_file, target_file, output_file, chunk_size):
-    tagged = []
-    source_data, target_data = read_parallel_lines(source_file, target_file)
-    print(f"The size of raw dataset is {len(source_data)}")
-    cnt_total, cnt_all, cnt_tp = 0, 0, 0
-    for source_sent, target_sent in tqdm(zip(source_data, target_data)):
-        try:
-            aligned_sent = align_sequences(source_sent, target_sent)
-        except Exception:
-            aligned_sent = align_sequences(source_sent, target_sent)
-        if source_sent != target_sent:
-            cnt_tp += 1
-        alignments = [aligned_sent]
-        cnt_all += len(alignments)
-        try:
-            check_sent = convert_tagged_line(aligned_sent)
-        except Exception:
-            # debug mode
-            aligned_sent = align_sequences(source_sent, target_sent)
-            check_sent = convert_tagged_line(aligned_sent)
-
-        if "".join(check_sent.split()) != "".join(
-                target_sent.split()):
-            # do it again for debugging
-            aligned_sent = align_sequences(source_sent, target_sent)
-            check_sent = convert_tagged_line(aligned_sent)
-            print(f"Incorrect pair: \n{target_sent}\n{check_sent}")
+def convert_data_from_raw_files(source_file, target_file, output_file, chunk_size, quality_file):
+    lines1 = read_lines(source_file, skip_strip=True)
+    lines2 = read_lines(target_file, skip_strip=True)
+    qualitys = read_lines(quality_file, skip_strip=True)
+    assert len(lines1) == len(lines2) and len(lines1) == len(qualitys)
+    out_lines1, out_lines2, out_qualitys = [], [], []
+    for line1, line2, quality in zip(lines1, lines2, qualitys):
+        if not line1.strip() or not line2.strip():
             continue
-        if alignments:
-            cnt_total += len(alignments)
-            tagged.extend(alignments)
-        if len(tagged) > chunk_size:
-            write_lines(output_file, tagged, mode='a')
-            tagged = []
+        else:
+            out_lines1.append(line1)
+            out_lines2.append(line2)
+            out_qualitys.append(quality)
 
-    print(f"Overall extracted {cnt_total}. "
-          f"Original TP {cnt_tp}."
-          f" Original TN {cnt_all - cnt_tp}")
-    if tagged:
-        write_lines(output_file, tagged, 'a')
+    write_lines(output_file, out_qualitys, 'a')
 
 
 def convert_labels_into_edits(labels):
@@ -466,7 +447,7 @@ def convert_tagged_line(line, delimeters=SEQ_DELIMETERS):
 
 
 def main(args):
-    convert_data_from_raw_files(args.source, args.target, args.output_file, args.chunk_size)
+    convert_data_from_raw_files(args.source, args.target, args.output_file, args.chunk_size, args.quality_file)
 
 
 if __name__ == '__main__':
@@ -476,6 +457,9 @@ if __name__ == '__main__':
                         required=True)
     parser.add_argument('-t', '--target',
                         help='Path to the target file',
+                        required=True)
+    parser.add_argument('-q', '--quality_file',
+                        help='Path to the quality file',
                         required=True)
     parser.add_argument('-o', '--output_file',
                         help='Path to the output file',
@@ -487,32 +471,30 @@ if __name__ == '__main__':
     args = parser.parse_args()
     main(args)
 """
-stage1 train file
-
-python utils/preprocess_data.py \
-    -s /home/ljh/GEC/QualityGec/data/clang8_train/clang8.src \
-    -t /home/ljh/GEC/QualityGec/data/clang8_train/clang8.tgt \
-    -o /home/ljh/GEC/gector/data/stage1.train
-"""
-
-
-"""
 stage2 train file
 
-python utils/preprocess_data.py \
-    -s /home/ljh/GEC/QualityGec/data/stage2_en/train.src \
-    -t /home/ljh/GEC/QualityGec/data/stage2_en/train.tgt \
-    -o /home/ljh/GEC/gector/data/stage2.train
 
 """
 
 """
 stage3 train file
 
-python utils/preprocess_data.py \
+python utils/preprocess_quality.py \
     -s /home/ljh/GEC/QualityGec/data/wi_locness_train/train.src \
     -t /home/ljh/GEC/QualityGec/data/wi_locness_train/train.tgt \
-    -o /home/ljh/GEC/gector/data/stage3.train
+    -o /home/ljh/GEC/gector/data/stage3.error_probs \
+    -q /home/ljh/GEC/QualityGec/data/wi_locness_train/train.error_probs
+
+python utils/preprocess_quality.py \
+    -s /home/ljh/GEC/QualityGec/data/wi_locness_train/train.src \
+    -t /home/ljh/GEC/QualityGec/data/wi_locness_train/train.tgt \
+    -o /home/ljh/GEC/gector/data/stage3.sss \
+    -q /home/ljh/GEC/QualityGec/data/wi_locness_train/train.sss
+python utils/preprocess_quality.py \
+    -s /home/ljh/GEC/QualityGec/data/wi_locness_train/train.src \
+    -t /home/ljh/GEC/QualityGec/data/wi_locness_train/train.tgt \
+    -o /home/ljh/GEC/gector/data/stage3.leven \
+    -q /home/ljh/GEC/QualityGec/data/wi_locness_train/train.leven
 """
 
 """

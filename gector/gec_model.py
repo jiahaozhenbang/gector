@@ -18,6 +18,7 @@ from gector.seq2labels_model import Seq2Labels
 from gector.tokenizer_indexer import PretrainedBertIndexer
 from utils.helpers import PAD, UNK, get_target_sent_by_edits, START_TOKEN
 from utils.helpers import get_weights_name
+import numpy as np
 
 logging.getLogger("werkzeug").setLevel(logging.ERROR)
 logger = logging.getLogger(__file__)
@@ -296,3 +297,34 @@ class GecBERTModel(object):
                 break
 
         return final_batch, total_updates
+
+    def handle_batch_for_token_correct_probs(self, full_batch):
+        """
+        Handle batch of requests.
+        """
+        final_batch = full_batch[:]
+
+        batch = Batch(final_batch)
+        batch.index_instances(self.vocab)
+
+
+        assert len(self.models) == 1
+        model=self.models[0]
+        batch = util.move_to_device(batch.as_tensor_dict(), 0 if torch.cuda.is_available() else -1)
+        with torch.no_grad():
+            prediction = model.forward(**batch)
+
+        class_probabilities_labels = prediction['class_probabilities_labels']
+        class_probabilities_d = prediction['class_probabilities_d_tags']
+        # print(class_probabilities_labels.shape)
+        # print(class_probabilities_d.shape)
+
+        # print(batch['labels'].shape)
+        correct_probs = torch.gather(class_probabilities_labels, dim=2, index=batch['labels'].unsqueeze(-1)).squeeze(-1).cpu()
+        sentence_lens = batch['tokens']['mask'].sum(dim=-1).cpu().tolist()
+        correct_probs_list = []
+        for i, _len in enumerate(sentence_lens):
+            _correct_prob =correct_probs[i, :_len]
+            correct_probs_list.append(np.array(_correct_prob))
+
+        return correct_probs_list

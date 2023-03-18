@@ -53,7 +53,7 @@ def get_token_embedders(model_name, tune_bert=False, special_tokens_fix=0):
 def get_data_reader(model_name, max_len, skip_correct=False, skip_complex=0,
                     test_mode=False, tag_strategy="keep_one",
                     broken_dot_strategy="keep", lowercase_tokens=True,
-                    max_pieces_per_token=3, tn_prob=0, tp_prob=1, special_tokens_fix=0,):
+                    max_pieces_per_token=3, tn_prob=0, tp_prob=1, special_tokens_fix=0,with_quality=False,correct_probs=None):
     token_indexers = get_token_indexers(model_name,
                                         max_pieces_per_token=max_pieces_per_token,
                                         lowercase_tokens=lowercase_tokens,
@@ -68,7 +68,9 @@ def get_data_reader(model_name, max_len, skip_correct=False, skip_complex=0,
                                      broken_dot_strategy=broken_dot_strategy,
                                      lazy=True,
                                      tn_prob=tn_prob,
-                                     tp_prob=tp_prob)
+                                     tp_prob=tp_prob,
+                                     with_quality=with_quality,
+                                    correct_probs=correct_probs,)
     return reader
 
 
@@ -101,7 +103,10 @@ def main(args):
                              max_pieces_per_token=args.pieces_per_token,
                              tn_prob=args.tn_prob,
                              tp_prob=args.tp_prob,
-                             special_tokens_fix=args.special_tokens_fix)
+                             special_tokens_fix=args.special_tokens_fix,
+                             with_quality=args.with_quality,
+                             correct_probs=args.correct_probs,
+                             )
     train_data = reader.read(args.train_set)
     dev_data = reader.read(args.dev_set)
 
@@ -306,6 +311,12 @@ if __name__ == '__main__':
                         type=int,
                         help='Whether to fix problem with [CLS], [SEP] tokens tokenization.',
                         default=1)
-
+    parser.add_argument('--with_quality',
+                        type=int,
+                        help='Whether to use quality.',
+                        default=0)
+    parser.add_argument('--correct_probs',
+                        type=str,
+                        help='correct_probs file',)
     args = parser.parse_args()
     main(args)

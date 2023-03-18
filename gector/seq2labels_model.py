@@ -93,7 +93,8 @@ class Seq2Labels(Model):
                 tokens: Dict[str, torch.LongTensor],
                 labels: torch.LongTensor = None,
                 d_tags: torch.LongTensor = None,
-                metadata: List[Dict[str, Any]] = None) -> Dict[str, torch.Tensor]:
+                metadata: List[Dict[str, Any]] = None,
+                quality: torch.FloatTensor = None) -> Dict[str, torch.Tensor]:
         # pylint: disable=arguments-differ
         """
         Parameters
@@ -151,10 +152,15 @@ class Seq2Labels(Model):
                        "class_probabilities_labels": class_probabilities_labels,
                        "class_probabilities_d_tags": class_probabilities_d,
                        "max_error_probability": incorr_prob}
+        # print(type(mask), mask.shape)
+        # print(type(quality), quality.shape)
+        # print(mask, quality, mask*quality)
+        # exit()
         if labels is not None and d_tags is not None:
-            loss_labels = sequence_cross_entropy_with_logits(logits_labels, labels, mask,
+            weights = quality if quality is not None else torch.ones_like(mask)
+            loss_labels = sequence_cross_entropy_with_logits(logits_labels, labels, mask * weights,
                                                              label_smoothing=self.label_smoothing)
-            loss_d = sequence_cross_entropy_with_logits(logits_d, d_tags, mask)
+            loss_d = sequence_cross_entropy_with_logits(logits_d, d_tags, mask * weights)
             for metric in self.metrics.values():
                 metric(logits_labels, labels, mask.float())
                 metric(logits_d, d_tags, mask.float())

@@ -276,6 +276,8 @@ class Trainer(TrainerBase):
             batch = batch_group[0]
             batch = nn_util.move_to_device(batch, self._cuda_devices[0])
             output_dict = self.model(**batch)
+            # print(output_dict)
+            # exit()
 
         try:
             loss = output_dict["loss"]

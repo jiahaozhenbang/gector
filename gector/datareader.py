@@ -6,11 +6,12 @@ from typing import Dict, List
 
 from allennlp.common.file_utils import cached_path
 from allennlp.data.dataset_readers.dataset_reader import DatasetReader
-from allennlp.data.fields import TextField, SequenceLabelField, MetadataField, Field
+from allennlp.data.fields import TextField, SequenceLabelField, MetadataField, Field, ArrayField
 from allennlp.data.instance import Instance
 from allennlp.data.token_indexers import TokenIndexer, SingleIdTokenIndexer
 from allennlp.data.tokenizers import Token
 from overrides import overrides
+import numpy as np
 
 from utils.helpers import SEQ_DELIMETERS, START_TOKEN
 
@@ -51,7 +52,9 @@ class Seq2LabelsDatasetReader(DatasetReader):
                  tag_strategy: str = "keep_one",
                  tn_prob: float = 0,
                  tp_prob: float = 0,
-                 broken_dot_strategy: str = "keep") -> None:
+                 broken_dot_strategy: str = "keep", 
+                 with_quality=False,
+                 correct_probs: str=None,) -> None:
         super().__init__(lazy)
         self._token_indexers = token_indexers or {'tokens': SingleIdTokenIndexer()}
         self._delimeters = delimeters
@@ -63,14 +66,30 @@ class Seq2LabelsDatasetReader(DatasetReader):
         self._test_mode = test_mode
         self._tn_prob = tn_prob
         self._tp_prob = tp_prob
+        self.with_quality= with_quality
+        
+        if self.with_quality:
+            if correct_probs:
+                assert correct_probs.endswith('.npz')
+                correct_probs_dict = np.load(correct_probs)
+                self.correct_probs = correct_probs_dict
+            else:
+                self.correct_probs = None
+            assert self.correct_probs is not None
 
     @overrides
     def _read(self, file_path):
         # if `file_path` is a URL, redirect to the cache
+        use_quality = self.with_quality and 'train' in file_path
+        if use_quality:
+            with open(file_path, 'r') as data_file:
+                num_samples = len(data_file.readlines())
+            if self.correct_probs:
+                assert len(self.correct_probs) == num_samples,  f'quality len is not equal to num_samples!!! {len(self.correct_probs)} == {num_samples}'
         file_path = cached_path(file_path)
         with open(file_path, "r") as data_file:
             logger.info("Reading instances from lines in file at: %s", file_path)
-            for line in data_file:
+            for i, line in enumerate(data_file):
                 line = line.strip("\n")
                 # skip blank and broken lines
                 if not line or (not self._test_mode and self._broken_dot_strategy == 'skip'
@@ -93,7 +112,10 @@ class Seq2LabelsDatasetReader(DatasetReader):
                 if self._max_len is not None:
                     tokens = tokens[:self._max_len]
                     tags = None if tags is None else tags[:self._max_len]
-                instance = self.text_to_instance(tokens, tags, words)
+                correct_probs = self.correct_probs['arr_' + str(i)] if use_quality and self.correct_probs is not None  else None
+                if correct_probs is not None and self._max_len is not None:
+                    correct_probs = correct_probs[:self._max_len]
+                instance = self.text_to_instance(tokens, tags, words, quality=correct_probs)
                 if instance:
                     yield instance
 
@@ -121,7 +143,8 @@ class Seq2LabelsDatasetReader(DatasetReader):
         return labels, detect_tags, comlex_flag_dict
 
     def text_to_instance(self, tokens: List[Token], tags: List[str] = None,
-                         words: List[str] = None) -> Instance:  # type: ignore
+                         words: List[str] = None,
+                         quality=None) -> Instance:  # type: ignore
         """
         We take `pre-tokenized` input here, because we don't have a tokenizer in this class.
         """
@@ -148,4 +171,6 @@ class Seq2LabelsDatasetReader(DatasetReader):
                                                   label_namespace="labels")
             fields["d_tags"] = SequenceLabelField(detect_tags, sequence,
                                                   label_namespace="d_tags")
+            if self.with_quality and quality is not None:
+                fields['quality'] =  ArrayField(np.array(quality))
         return Instance(fields)
