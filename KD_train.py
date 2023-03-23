@@ -10,7 +10,7 @@ from allennlp.modules.text_field_embedders import BasicTextFieldEmbedder
 
 from gector.bert_token_embedder import PretrainedBertEmbedder
 from gector.datareader import Seq2LabelsDatasetReader
-from gector.seq2labels_model import Seq2Labels
+from gector.seq2labels_model import Seq2Labels, Seq2LabelsStudent
 from gector.trainer import Trainer
 from gector.tokenizer_indexer import PretrainedBertIndexer
 from utils.helpers import get_weights_name
@@ -88,6 +88,19 @@ def get_model(model_name, vocab, tune_bert=False,
                        confidence=confidence)
     return model
 
+def get_student_model(model_name, vocab, tune_bert=False,
+              predictor_dropout=0,
+              label_smoothing=0.0,
+              confidence=0,
+              special_tokens_fix=0,teacher=None):
+    token_embs = get_token_embedders(model_name, tune_bert=tune_bert, special_tokens_fix=special_tokens_fix)
+    model = Seq2LabelsStudent(vocab=vocab,
+                       text_field_embedder=token_embs,
+                       predictor_dropout=predictor_dropout,
+                       label_smoothing=label_smoothing,
+                       confidence=confidence,teacher=teacher)
+    return model
+
 
 def main(args):
     fix_seed()
@@ -127,12 +140,6 @@ def main(args):
     vocab.save_to_files(os.path.join(args.model_dir, 'vocabulary'))
 
     print("Data is loaded")
-    model = get_model(weights_name, vocab,
-                      tune_bert=args.tune_bert,
-                      predictor_dropout=args.predictor_dropout,
-                      label_smoothing=args.label_smoothing,
-                      special_tokens_fix=args.special_tokens_fix)
-
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     if torch.cuda.is_available():
         if torch.cuda.device_count() > 1:
@@ -141,13 +148,26 @@ def main(args):
             cuda_device = 0
     else:
         cuda_device = -1
+    teacher_model = get_model('roberta-large', vocab,
+                      tune_bert=False,
+                      special_tokens_fix=1)
+    teacher_model.load_state_dict(
+            torch.load(args.teacher_path),
+            strict=True,
+        )
+    model = get_student_model(weights_name, vocab,
+                      tune_bert=args.tune_bert,
+                      predictor_dropout=args.predictor_dropout,
+                      label_smoothing=args.label_smoothing,
+                      special_tokens_fix=args.special_tokens_fix,teacher=teacher_model)
 
     if args.pretrain:
         model.load_state_dict(
             torch.load(os.path.join(args.pretrain_folder, args.pretrain + '.th')),
             strict=False,
         )
-
+    teacher_model.eval()
+    teacher_model.to(device)
     model = model.to(device)
 
     print("Model is set")
@@ -323,5 +343,7 @@ if __name__ == '__main__':
     parser.add_argument('--entropy',
                         type=str,
                         help='entropy file',)
+    parser.add_argument('--teacher_path',
+                        default='/home/ljh/GEC/gector-large/pretrained_model/roberta-large_1_pie_1bw_st3.th')
     args = parser.parse_args()
     main(args)

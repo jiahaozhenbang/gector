@@ -1,4 +1,5 @@
 import argparse
+import os
 
 from utils.helpers import read_lines, normalize
 from gector.gec_model import GecBERTModel
@@ -32,6 +33,8 @@ def predict_for_file(input_file, output_file, model, batch_size=32, to_normalize
 
 def main(args):
     # get all paths
+    BEA19_DEV_FILE = '/home/ljh/GEC/QualityGec/data/bea19_dev/valid.src'
+    assert args.input_file == BEA19_DEV_FILE
     model = GecBERTModel(vocab_path=args.vocab_path,
                          model_paths=args.model_path,
                          max_len=args.max_len, min_len=args.min_len,
@@ -46,19 +49,25 @@ def main(args):
                          is_ensemble=args.is_ensemble,
                          weigths=args.weights)
 
-    cnt_corrections = predict_for_file(args.input_file, args.output_file, model,
-                                       batch_size=args.batch_size, 
-                                       to_normalize=args.normalize)
-    import os
-    BEA19_DEV_FILE = '/home/ljh/GEC/QualityGec/data/bea19_dev/valid.src'
-        
-    if args.input_file == BEA19_DEV_FILE:
-        OUTPUTDIR=os.path.dirname(args.output_file)
-        corrected_m2 = os.path.join(OUTPUTDIR, 'BEA19.dev.m2')
-        reference_m2 = '/home/ljh/GEC/Data/wi+locness/m2/ABCN.dev.gold.bea19.m2'
-        os.system(f"errant_parallel -orig {BEA19_DEV_FILE} -cor {args.output_file} -out {corrected_m2} ; errant_compare -hyp {corrected_m2} -ref {reference_m2}")
-    # evaluate with m2 or ERRANT
-    print(f"Produced overall corrections: {cnt_corrections}")
+    import numpy as np
+    for min_error_probability in np.linspace(0.5, 0.7, num=21):
+        for additional_confidence in [0.2]:
+            with open(args.output_log_file, 'a') as f:
+                print('min_error_probability:', min_error_probability, 'additional_confidence:', additional_confidence, file=f)
+            model.min_error_probability = min_error_probability
+            for _model in model.models:
+                _model.confidence = additional_confidence
+            cnt_corrections = predict_for_file(args.input_file, args.output_file, model,
+                                            batch_size=args.batch_size, 
+                                            to_normalize=args.normalize)
+            
+            OUTPUTDIR=os.path.dirname(args.output_file)
+            corrected_m2 = os.path.join(OUTPUTDIR, 'BEA19.dev.m2')
+            reference_m2 = '/home/ljh/GEC/Data/wi+locness/m2/ABCN.dev.gold.bea19.m2'
+            os.system(f"errant_parallel -orig {BEA19_DEV_FILE} -cor {args.output_file} -out {corrected_m2} >>{args.output_log_file} ; wait ; errant_compare -hyp {corrected_m2} -ref {reference_m2} >>{args.output_log_file} ; wait;")
+            # evaluate with m2 or ERRANT
+            with open(args.output_log_file, 'a') as f:
+                print(f"Produced overall corrections: {cnt_corrections}", file=f)
 
 
 if __name__ == '__main__':
@@ -75,6 +84,9 @@ if __name__ == '__main__':
                         help='Path to the evalset file',
                         required=True)
     parser.add_argument('--output_file',
+                        help='Path to the output file',
+                        required=True)
+    parser.add_argument('--output_log_file',
                         help='Path to the output file',
                         required=True)
     parser.add_argument('--max_len',
@@ -134,3 +146,7 @@ if __name__ == '__main__':
                         action='store_true')
     args = parser.parse_args()
     main(args)
+
+"""
+
+"""

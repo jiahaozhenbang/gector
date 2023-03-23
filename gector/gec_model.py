@@ -328,3 +328,84 @@ class GecBERTModel(object):
             correct_probs_list.append(np.array(_correct_prob))
 
         return correct_probs_list
+    
+    def handle_batch_for_token_entropy(self, full_batch):
+        """
+        Handle batch of requests.
+        """
+        final_batch = full_batch[:]
+
+        batch = Batch(final_batch)
+        batch.index_instances(self.vocab)
+
+
+        assert len(self.models) == 1
+        model=self.models[0]
+        batch = util.move_to_device(batch.as_tensor_dict(), 0 if torch.cuda.is_available() else -1)
+        with torch.no_grad():
+            prediction = model.forward(**batch)
+
+        class_probabilities_labels = prediction['class_probabilities_labels']
+        class_probabilities_d = prediction['class_probabilities_d_tags']
+        # print(class_probabilities_labels.shape)
+        # print(class_probabilities_d.shape)
+
+        # print(batch['labels'].shape)
+        num_labels = class_probabilities_labels.shape[-1]
+        entropy = torch.sum(- class_probabilities_labels * torch.log2(class_probabilities_labels), dim=-1) / torch.log2(torch.tensor(num_labels))
+        # print(entropy)
+        # print(batch)
+        # print(batch.as_tensor_dict())
+        # exit()
+        entropy = entropy.cpu()
+        sentence_lens = batch['tokens']['mask'].sum(dim=-1).cpu().tolist()
+        entropy_list = []
+        for i, _len in enumerate(sentence_lens):
+            _entropy = entropy[i, :_len]
+            entropy_list.append(np.array(_entropy))
+
+        return entropy_list
+    
+    def handle_batch_for_token_quality(self, full_batch):
+        """
+        Handle batch of requests.
+        """
+        final_batch = full_batch[:]
+
+        batch = Batch(final_batch)
+        batch.index_instances(self.vocab)
+
+
+        assert len(self.models) == 1
+        model=self.models[0]
+        batch = util.move_to_device(batch.as_tensor_dict(), 0 if torch.cuda.is_available() else -1)
+        with torch.no_grad():
+            prediction = model.forward(**batch)
+
+        class_probabilities_labels = prediction['class_probabilities_labels']
+        class_probabilities_d = prediction['class_probabilities_d_tags']
+        # print(class_probabilities_labels.shape)
+        # print(class_probabilities_d.shape)
+
+        # print(batch['labels'].shape)
+        correct_probs = torch.gather(class_probabilities_labels, dim=2, index=batch['labels'].unsqueeze(-1)).squeeze(-1).cpu()
+        sentence_lens = batch['tokens']['mask'].sum(dim=-1).cpu().tolist()
+        correct_probs_list = []
+        for i, _len in enumerate(sentence_lens):
+            _correct_prob =correct_probs[i, :_len]
+            correct_probs_list.append(np.array(_correct_prob))
+        
+        num_labels = class_probabilities_labels.shape[-1]
+        entropy = torch.sum(- class_probabilities_labels * torch.log2(class_probabilities_labels), dim=-1) / torch.log2(torch.tensor(num_labels))
+        # print(entropy)
+        # print(batch)
+        # print(batch.as_tensor_dict())
+        # exit()
+        entropy = entropy.cpu()
+        sentence_lens = batch['tokens']['mask'].sum(dim=-1).cpu().tolist()
+        entropy_list = []
+        for i, _len in enumerate(sentence_lens):
+            _entropy = entropy[i, :_len]
+            entropy_list.append(np.array(_entropy))
+
+        return correct_probs_list, entropy_list

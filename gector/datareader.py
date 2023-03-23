@@ -47,14 +47,15 @@ class Seq2LabelsDatasetReader(DatasetReader):
                  skip_correct: bool = False,
                  skip_complex: int = 0,
                  lazy: bool = False,
-                 max_len: int = None,
+                 max_len: int = 512,
                  test_mode: bool = False,
                  tag_strategy: str = "keep_one",
                  tn_prob: float = 0,
                  tp_prob: float = 0,
                  broken_dot_strategy: str = "keep", 
                  with_quality=False,
-                 correct_probs: str=None,) -> None:
+                 correct_probs: str=None,
+                 entropy: str=None) -> None:
         super().__init__(lazy)
         self._token_indexers = token_indexers or {'tokens': SingleIdTokenIndexer()}
         self._delimeters = delimeters
@@ -72,10 +73,20 @@ class Seq2LabelsDatasetReader(DatasetReader):
             if correct_probs:
                 assert correct_probs.endswith('.npz')
                 correct_probs_dict = np.load(correct_probs)
-                self.correct_probs = correct_probs_dict
+                self.correct_probs = dict(correct_probs_dict)
+                print('use correct probs', correct_probs)
             else:
                 self.correct_probs = None
-            assert self.correct_probs is not None
+                print('do not use correct probs')
+            if entropy:
+                assert entropy.endswith('.npz')
+                entropy_dict = dict(np.load(entropy))
+                self.entropy = entropy_dict
+                print('use entropy', entropy)
+            else:
+                self.entropy = None
+                print('do not use entropy')
+            assert self.correct_probs is not None or self.entropy is not None
 
     @overrides
     def _read(self, file_path):
@@ -85,7 +96,16 @@ class Seq2LabelsDatasetReader(DatasetReader):
             with open(file_path, 'r') as data_file:
                 num_samples = len(data_file.readlines())
             if self.correct_probs:
-                assert len(self.correct_probs) == num_samples,  f'quality len is not equal to num_samples!!! {len(self.correct_probs)} == {num_samples}'
+                assert len(self.correct_probs['lengths']) == num_samples,  f'quality len is not equal to num_samples!!! {len(self.correct_probs)} == {num_samples}'
+            if self.entropy:
+                assert len(self.entropy['lengths']) == num_samples,  f'quality len is not equal to num_samples!!! {len(self.entropy)} == {num_samples}'
+        def convert_entropy(entro):
+            SCALE_CONSTANT = 9
+            CONSTANT= np.exp(-SCALE_CONSTANT)
+            converted = - np.log(entro + CONSTANT) / SCALE_CONSTANT
+            converted = np.where(converted > CONSTANT, converted, CONSTANT)
+            sentence_entropy = np.repeat(np.mean(converted), len(converted))
+            return sentence_entropy
         file_path = cached_path(file_path)
         with open(file_path, "r") as data_file:
             logger.info("Reading instances from lines in file at: %s", file_path)
@@ -112,10 +132,23 @@ class Seq2LabelsDatasetReader(DatasetReader):
                 if self._max_len is not None:
                     tokens = tokens[:self._max_len]
                     tags = None if tags is None else tags[:self._max_len]
-                correct_probs = self.correct_probs['arr_' + str(i)] if use_quality and self.correct_probs is not None  else None
+                def get_quality(data, i):
+                    if 'lengths' in data:
+                        output = data['data'][i]
+                        length = data['lengths'][i]
+                        return output[:length]
+                    else:
+                        return data['arr_' + str(i)]
+                quality = None
+                correct_probs = get_quality(self.correct_probs, i) if use_quality and self.correct_probs is not None  else None
                 if correct_probs is not None and self._max_len is not None:
                     correct_probs = correct_probs[:self._max_len]
-                instance = self.text_to_instance(tokens, tags, words, quality=correct_probs)
+                    quality = correct_probs if quality is None else quality * correct_probs
+                entropy = get_quality(self.entropy, i) if use_quality and self.entropy is not None  else None
+                if entropy is not None and self._max_len is not None:
+                    entropy = entropy[:self._max_len]
+                    quality = convert_entropy(entropy) if quality is None else quality * convert_entropy(entropy)
+                instance = self.text_to_instance(tokens, tags, words, quality=quality)
                 if instance:
                     yield instance
 
