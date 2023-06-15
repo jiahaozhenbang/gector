@@ -486,6 +486,21 @@ if __name__ == '__main__':
                         default=1000000)
     args = parser.parse_args()
     main(args)
+
+"""
+stage0 Troy-1BW train file
+
+python utils/preprocess_data.py \
+    -s /home/ljh/GEC/gector/data/new_1bw/train_source \
+    -t /home/ljh/GEC/gector/data/new_1bw/train_target \
+    -o /home/ljh/GEC/gector/data/BW.train
+
+python utils/preprocess_data.py \
+    -s /home/ljh/GEC/gector/data/new_1bw/test_source \
+    -t /home/ljh/GEC/gector/data/new_1bw/test_target \
+    -o /home/ljh/GEC/gector/data/BW.dev
+"""
+
 """
 stage1 train file
 

@@ -286,15 +286,21 @@ if __name__ == '__main__':
     main(args)
 
 """
+CUDA_VISIBLE_DEVICES=0 python /home/ljh/GEC/gector/prepare_quality_data.py --model_path /home/ljh/GEC/gector-large/pretrained_model/roberta-large_1_pie_1bw_st3.th \
+    --transformer_model roberta-large \
+    --vocab_path /home/ljh/GEC/gector/data/output_vocabulary \
+    --input_file /home/ljh/GEC/gector/data/legacy/stage3.train  \
+    --entropy_output_file /home/ljh/GEC/gector/data/legacy/stage3.entropy   \
+    --correct_probs_output_file /home/ljh/GEC/gector/data/legacy/stage3.correct_probs   \
+    --batch_size 128
 
-
-CUDA_VISIBLE_DEVICES=3 python /home/ljh/GEC/gector/prepare_quality_data.py --model_path /home/ljh/GEC/gector-large/pretrained_model/roberta-large_1_pie_1bw_st3.th \
+CUDA_VISIBLE_DEVICES=0 python /home/ljh/GEC/gector/prepare_quality_data.py --model_path /home/ljh/GEC/gector-large/pretrained_model/roberta-large_1_pie_1bw_st3.th \
     --transformer_model roberta-large \
     --vocab_path /home/ljh/GEC/gector/data/output_vocabulary \
     --input_file /home/ljh/GEC/gector/data/stage2.train  \
     --entropy_output_file /home/ljh/GEC/gector/data/stage2.entropy   \
     --correct_probs_output_file /home/ljh/GEC/gector/data/stage2.correct_probs   \
-    --batch_size 1024
+    --batch_size 128
 
 CUDA_VISIBLE_DEVICES=3 python /home/ljh/GEC/gector/prepare_quality_data.py --model_path /home/ljh/GEC/gector-large/pretrained_model/roberta-large_1_pie_1bw_st3.th \
     --transformer_model roberta-large \
@@ -303,6 +309,14 @@ CUDA_VISIBLE_DEVICES=3 python /home/ljh/GEC/gector/prepare_quality_data.py --mod
     --entropy_output_file /home/ljh/GEC/gector/data/stage1.entropy   \
     --correct_probs_output_file /home/ljh/GEC/gector/data/stage1.correct_probs   \
     --batch_size 1024
+
+CUDA_VISIBLE_DEVICES=4 python /home/ljh/GEC/gector/prepare_quality_data.py --model_path /home/ljh/GEC/gector/output/adaptive/BW_stage2_roberta_large/model_state_epoch_0.th \
+--transformer_model roberta-large \
+--vocab_path /home/ljh/GEC/gector/data/output_vocabulary \
+--input_file /home/ljh/GEC/gector/data/stage1.train  \
+--entropy_output_file /home/ljh/GEC/gector/data/stage1.new_entropy   \
+--correct_probs_output_file /home/ljh/GEC/gector/data/stage1.new_correct_probs   \
+--batch_size 1024
 
 demo
 

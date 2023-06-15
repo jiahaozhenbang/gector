@@ -50,8 +50,8 @@ def main(args):
                          weigths=args.weights)
 
     import numpy as np
-    for min_error_probability in np.linspace(0.5, 0.7, num=21):
-        for additional_confidence in [0.2]:
+    for min_error_probability in np.linspace(0.5, 0.7, num=11):
+        for additional_confidence in np.linspace(0.1, 0.35, num=6):
             with open(args.output_log_file, 'a') as f:
                 print('min_error_probability:', min_error_probability, 'additional_confidence:', additional_confidence, file=f)
             model.min_error_probability = min_error_probability
