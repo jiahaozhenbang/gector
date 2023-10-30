@@ -409,3 +409,31 @@ class GecBERTModel(object):
             entropy_list.append(np.array(_entropy))
 
         return correct_probs_list, entropy_list
+    
+    def handle_batch_for_ppl(self, full_batch):
+        """
+        Handle batch of requests.
+        """
+        final_batch = full_batch[:]
+
+        batch = Batch(final_batch)
+        batch.index_instances(self.vocab)
+
+
+        assert len(self.models) == 1
+        model=self.models[0]
+        batch = util.move_to_device(batch.as_tensor_dict(), 0 if torch.cuda.is_available() else -1)
+        with torch.no_grad():
+            prediction = model.forward(**batch)
+
+        class_probabilities_labels = prediction['class_probabilities_labels']
+
+        correct_probs = torch.gather(class_probabilities_labels, dim=2, index=batch['labels'].unsqueeze(-1)).squeeze(-1).cpu()
+        sentence_lens = batch['tokens']['mask'].sum(dim=-1).cpu().tolist()
+        ppl_list = []
+        for i, _len in enumerate(sentence_lens):
+            _correct_prob =correct_probs[i, :_len]
+            ppl_list.append(- np.mean(np.log2(np.array(_correct_prob))))
+
+
+        return ppl_list, sentence_lens

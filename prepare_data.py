@@ -126,43 +126,43 @@ def predict_for_entropy(input_data, output_file, model, batch_size=32, to_normal
     print(predictions[:3])
     return len(predictions)
 
-def predict_for_quality(input_data, correct_probs_output_file, entropy_output_file, model, batch_size=32, to_normalize=False):
-    all_correct_probs = []
-    all_entropy = []
+def predict_for_quality(input_data, entropy_output_file, origin_output_file, former_model, latter_model, batch_size=32, to_normalize=False):
+    all_delta_ppl = []
+    lengths = []
     batch = []
     for instance in tqdm(input_data):
         if not instance:
             raise ValueError('instance is None')
         batch.append(instance)
         if len(batch) == batch_size:
-            correct_probs, entropy = model.handle_batch_for_token_quality(batch)
-            assert len(correct_probs) == batch_size and len(entropy) == batch_size, f"{len(correct_probs)}, {len(entropy)}, {batch_size}"
-            all_correct_probs.extend(correct_probs)
-            all_entropy.extend(entropy)
-
+            former_ppl, lens = former_model.handle_batch_for_ppl(batch)
+            latter_ppl, lens = latter_model.handle_batch_for_ppl(batch)
+            assert len(former_ppl) == batch_size, f"{len(former_ppl)}, {batch_size}"
+            all_delta_ppl.extend([f -l for f,l  in zip(former_ppl, latter_ppl)])
+            lengths.extend(lens)
             batch = []
     if batch:
-        correct_probs, entropy = model.handle_batch_for_token_quality(batch)
-        all_correct_probs.extend(correct_probs)
-        all_entropy.extend(entropy)
+        former_ppl, lens = former_model.handle_batch_for_ppl(batch)
+        latter_ppl, lens = latter_model.handle_batch_for_ppl(batch)
+        all_delta_ppl.extend([f -l for f,l in zip(former_ppl, latter_ppl)])
+        lengths.extend(lens)
 
-    def save(origin_array_list, file):
-        lengths = [len(d) for d in origin_array_list]
-        dtype = origin_array_list[0].dtype
+    def save(origin_array_list, lengths, file):
+        dtype = np.array(origin_array_list[0]).dtype
         return_array = np.asarray(np.zeros((len(lengths), max(lengths)), dtype=dtype) , dtype=dtype)
         for i, _len in enumerate(lengths):
             slices = tuple([i, slice(0, _len)])
             return_array[slices] = origin_array_list[i]
         np.savez(file, data=return_array, lengths=np.array(lengths))
     
-    
-    print(all_correct_probs[:3])
-    save(all_correct_probs, correct_probs_output_file)
-    
-    print(all_entropy[:3])
-    save(all_entropy, entropy_output_file)
-    assert len(all_correct_probs) == len(all_entropy)
-    return len(all_correct_probs)
+    print(all_delta_ppl[:100])
+    save(all_delta_ppl, lengths, origin_output_file)
+
+    threshold = np.percentile(all_delta_ppl, 10)
+    all_weights = [1 if d < threshold else 0 for d in all_delta_ppl]
+    print(all_weights[:100])
+    save(all_weights, lengths, entropy_output_file)
+    return len(all_weights)
 
 def main(args):
     # get all paths
@@ -173,8 +173,22 @@ def main(args):
                                         special_tokens_fix=args.special_tokens_fix,
                                         )
     reader = gectorReader(token_indexer, args.max_len)
-    model = GecBERTModel(vocab_path=args.vocab_path,
-                         model_paths=args.model_path,
+    former_model = GecBERTModel(vocab_path=args.vocab_path,
+                         model_paths=args.former_model_path,
+                         max_len=args.max_len, min_len=args.min_len,
+                         iterations=args.iteration_count,
+                         min_error_probability=args.min_error_probability,
+                         lowercase_tokens=args.lowercase_tokens,
+                         model_name=args.transformer_model,
+                         special_tokens_fix=args.special_tokens_fix,
+                         log=False,
+                         confidence=args.additional_confidence,
+                         del_confidence=args.additional_del_confidence,
+                         is_ensemble=args.is_ensemble,
+                         weigths=args.weights)
+    
+    latter_model = GecBERTModel(vocab_path=args.vocab_path,
+                         model_paths=args.latter_model_path,
                          max_len=args.max_len, min_len=args.min_len,
                          iterations=args.iteration_count,
                          min_error_probability=args.min_error_probability,
@@ -195,7 +209,7 @@ def main(args):
     #     cnt_corrections = predict_for_file(reader.read(args.input_file), args.output_file, model,
     #                                    batch_size=args.batch_size, 
     #                                    to_normalize=args.normalize)
-    cnt_corrections = predict_for_quality(reader.read(args.input_file), args.correct_probs_output_file, args.entropy_output_file , model,
+    cnt_corrections = predict_for_quality(reader.read(args.input_file), args.entropy_output_file, args.entropy_output_file + 'origin' , former_model, latter_model,
                                        batch_size=args.batch_size, 
                                        to_normalize=args.normalize)
     # evaluate with m2 or ERRANT
@@ -205,7 +219,10 @@ def main(args):
 if __name__ == '__main__':
     # read parameters
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model_path',
+    parser.add_argument('--former_model_path',
+                        help='Path to the model file.', nargs='+',
+                        required=True)
+    parser.add_argument('--latter_model_path',
                         help='Path to the model file.', nargs='+',
                         required=True)
     parser.add_argument('--vocab_path',
@@ -214,9 +231,6 @@ if __name__ == '__main__':
                         )
     parser.add_argument('--input_file',
                         help='Path to the evalset file',
-                        required=True)
-    parser.add_argument('--correct_probs_output_file',
-                        help='Path to the output file',
                         required=True)
     parser.add_argument('--entropy_output_file',
                         help='Path to the output file',
@@ -287,45 +301,16 @@ if __name__ == '__main__':
     main(args)
 
 """
-CUDA_VISIBLE_DEVICES=0 python /home/ljh/GEC/gector/prepare_quality_data.py --model_path /home/ljh/GEC/gector-large/pretrained_model/roberta-large_1_pie_1bw_st3.th \
-    --transformer_model roberta-large \
-    --vocab_path /home/ljh/GEC/gector/data/output_vocabulary \
-    --input_file /home/ljh/GEC/gector/data/legacy/stage3.train  \
-    --entropy_output_file /home/ljh/GEC/gector/data/legacy/stage3.entropy   \
-    --correct_probs_output_file /home/ljh/GEC/gector/data/legacy/stage3.correct_probs   \
-    --batch_size 128
 
-CUDA_VISIBLE_DEVICES=0 python /home/ljh/GEC/gector/prepare_quality_data.py --model_path /home/ljh/GEC/gector-large/pretrained_model/roberta-large_1_pie_1bw_st3.th \
-    --transformer_model roberta-large \
-    --vocab_path /home/ljh/GEC/gector/data/output_vocabulary \
-    --input_file /home/ljh/GEC/gector/data/stage2.train  \
-    --entropy_output_file /home/ljh/GEC/gector/data/stage2.entropy   \
-    --correct_probs_output_file /home/ljh/GEC/gector/data/stage2.correct_probs   \
-    --batch_size 128
-
-CUDA_VISIBLE_DEVICES=3 python /home/ljh/GEC/gector/prepare_quality_data.py --model_path /home/ljh/GEC/gector-large/pretrained_model/roberta-large_1_pie_1bw_st3.th \
-    --transformer_model roberta-large \
-    --vocab_path /home/ljh/GEC/gector/data/output_vocabulary \
-    --input_file /home/ljh/GEC/gector/data/stage1.train  \
-    --entropy_output_file /home/ljh/GEC/gector/data/stage1.entropy   \
-    --correct_probs_output_file /home/ljh/GEC/gector/data/stage1.correct_probs   \
-    --batch_size 1024
-
-CUDA_VISIBLE_DEVICES=4 python /home/ljh/GEC/gector/prepare_quality_data.py --model_path /home/ljh/GEC/gector/output/adaptive/BW_stage2_roberta_large/model_state_epoch_0.th \
+CUDA_VISIBLE_DEVICES=3 nohup python /home/ljh/GEC/gector/prepare_data.py \
+--former_model_path /home/ljh/GEC/gector/output/baseline/BW_stage1_roberta_large/model_state_epoch_3.th \
+--latter_model_path /home/ljh/GEC/gector/output/baseline/BW_stage2_roberta_large/model_state_epoch_0.th \
 --transformer_model roberta-large \
 --vocab_path /home/ljh/GEC/gector/data/output_vocabulary \
 --input_file /home/ljh/GEC/gector/data/stage1.train  \
---entropy_output_file /home/ljh/GEC/gector/data/stage1.new_entropy   \
---correct_probs_output_file /home/ljh/GEC/gector/data/stage1.new_correct_probs   \
---batch_size 1024
-
-demo
+--batch_size 1024 \
+--entropy_output_file /home/ljh/GEC/gector/data/stage1.2020_dwt   \
+--batch_size 1024 2>&1 >/home/ljh/GEC/gector/bash/adaptive_train/ablation/reimp_2020_data_weighted_training/prepare.log &
 
 
-CUDA_VISIBLE_DEVICES=3 python /home/ljh/GEC/gector/prepare_quality_data.py --model_path /home/ljh/GEC/gector-large/pretrained_model/roberta-large_1_pie_1bw_st3.th \
-    --transformer_model roberta-large \
-    --vocab_path /home/ljh/GEC/gector/data/output_vocabulary \
-    --input_file /home/ljh/GEC/gector/data/stage3.train  \
-    --output_file /home/ljh/GEC/gector/data/stage3.correct_probs   \
-    --batch_size 128        
 """
